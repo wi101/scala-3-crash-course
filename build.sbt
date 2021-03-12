@@ -6,7 +6,7 @@ lazy val root = project
     name := "scala3-crash-course",
     version := "0.1.0",
 
-    scalaVersion := scala3Version,
+    scalaVersion := scala3Version
   )
 
   scalacOptions ++= Seq(
