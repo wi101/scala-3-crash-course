@@ -29,14 +29,15 @@ object ImplicitConfusion:
  * Chapter 3.1: Implicit parameters a.k.a. term inference
  * [] Given/using
  * [] Given/using and implicit can be used interchangibly
- * [] Term inference
+ * [] Term inference (the compiler will lookup the defined value)
  */
 object ImplicitParams:
     import scala.concurrent.ExecutionContext
     import scala.concurrent.Future
-
-    implicit val executionContext: ExecutionContext = ExecutionContext.parasitic
-    def sendPostRequest(url: String)(implicit ec: ExecutionContext): Future[String] = Future.unit.map(_ => "OK")
+    // definition: instead of implicit --> given without val
+    given executionContext: ExecutionContext = ExecutionContext.parasitic
+    //usage: instead of implicit --> using 
+    def sendPostRequest(url: String)(using ec: ExecutionContext): Future[String] = Future.unit.map(_ => "OK")
     sendPostRequest("https://moia.io")
 
 /**
@@ -45,10 +46,10 @@ object ImplicitParams:
  * [] Type parameters in the new syntax
  */
 @main def extensionMethods =
-    implicit class StringOps(value: String) {
+// instead of implicit class --> extension without naming it
+    extension (value: String)
         def times(times: Int): Seq[String] = (1 to times).map(_ => value)
         def unit: Unit = ()
-    }
 
     println("a".times(20).toList)
     println("a".times(20).toList)
@@ -63,13 +64,19 @@ object ImplicitParams:
     import java.time._
 
     // The following should compile:
-    // println(Instant.now() - Instant.now())
+      extension (value: Instant)
+          def -(until: Instant): java.time.Duration = java.time.Duration.ofMillis(until.toEpochMilli - value.toEpochMilli)
+     
+    println(Instant.now() - Instant.now())
 
    // Exercise 2: Implement def +(thatTuple: Tuple2[A, B]) function on the tuple2 
    // Hint: Use the Numeric type class (https://www.scala-lang.org/api/current/scala/math/Numeric.html).
     
     // The following should compile:
-    //println((2, 2.1) + (3, 4.0))
+    extension [A, B](tuple: Tuple2[A, B])(using n1: Numeric[A], n2: Numeric[B])
+        def +(thatTuple: Tuple2[A, B]) = (n1.plus(tuple._1, thatTuple._1), n2.plus(tuple._2, thatTuple._2))
+
+    println((2, 2.1) + (3, 4.0))
 
 /**
  * Chapter 3.3: Type classes
@@ -80,27 +87,24 @@ object Typeclasses:
     case class Data(field: String)
     
     // 1. Type class declaration
-    trait Show[A] {
-        def show(a: A): String
-    }
+    trait Show[A]:
+        extension (a: A) def show: String
 
     // 2. Type class instance for the custom data type
-    implicit val dataShow: Show[Data] = new Show[Data] { // or implicit object...
-        override def show(data: Data): String = s"Data(field = ${data.field})"
-    }
-
+  // instead of = new Show[Data] --> with
+    given dataShow: Show[Data] with // or implicit object...
+        extension (a: Data) def show: String = a.toString
+  
     // 3. Interface w/ summoner
-    object Show {
-        def show[A](a: A)(implicit ev: Show[A]): String = ev.show(a)
-    }
+    object Show:
+        def show[A](a: A)(using ev: Show[A]): String = ev.show(a)
 
     // 4. Syntax	   
-    implicit class ShowOps[A](a: A)(implicit ev: Show[A]) {
-        def show: String = ev.show(a)	
-    }
-    
+//    extension (a: A)(using ev: Show[A])
+//        def show: String = ev.show(a)	
+//    
     // 5. Usage
-    def usage[A: Show](a: A) = ???
+    def usage[A: Show](a: A) = a.show
 
     // 6. Derivation
 
@@ -112,16 +116,22 @@ object TypeclassesExercises:
     // - instance for Option	
     // - syntax	
     trait Monad[F[_]]: 	
-        def bind[A, B](fa: F[A])(f: A => F[B]): F[B]	
-        def unit[A](x: A): F[A]	
+      extension[A] (fa: F[A])
+          def bind[B](f: A => F[B]): F[B]
+      extension[A] (a: A)
+          def unit: F[A]
     ???
+
 
 /**
  * Chapter 3.4: Implicit conversions
  */
 object ImplicitConversions:
-    implicit def booleanToString(input: Boolean): String = input.toString
+//    implicit def booleanToString(input: Boolean): String = input.toString
 
+    given Conversion[Boolean, String] with 
+        def apply(input: Boolean): String = input.toString
+  
     def identity(input: String): String = input
     identity(true)
     val x: String = false
@@ -143,12 +153,14 @@ object Instances:
     given Conversion[Boolean, String] with 
         def apply(input: Boolean): String = input.toString
 object Scoping:
-    // import Instances._
-    // summon[String] 
-    // "a".to42
-    // val str: String = false
+//     import Instances.given // if you want to import given 
+//     import Instances.{given: String} // by type
+//     import Instances.x // by name
+//     summon[String] // implicitly 
+//     "a".to42
+//     val str: String = false
     ???
-
+end Scoping
 /**
  * Chapter 3.6: Context functions
  * 
@@ -160,10 +172,17 @@ object ContextFunctions:
 
     case class TracingContext(traceId: String)
 
-    def createUser(userData: String)(using TracingContext): Future[Unit] = 
+    type WithContext[A] = TracingContext ?=> A // implicit TracingContext => A
+    object WithContext:
+        def traceId: TracingContext ?=> String = summon[TracingContext].traceId
+  
+//    def createUser(userData: String)(using TracingContext): Future[Unit] = 
+    def createUser(userData: String): WithContext[Future[Unit]] = 
     for {
         _ <- validateUser(userData)
+        _ = WithContext.traceId
         _ <- insertUser(userData)
     } yield ()
-    def validateUser(userData: String)(using TracingContext): Future[Unit] = ???
-    def insertUser(userData: String)(using TracingContext): Future[Unit] = ???
+      
+    def validateUser(userData: String):WithContext[Future[Unit]]  = ???
+    def insertUser(userData: String): WithContext[Future[Unit]]  = ???
